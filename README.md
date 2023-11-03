@@ -1,4 +1,4 @@
-# Ktlib Core
+# Ktlib Web
 
 A library of some tools for Kotlin web servers.
 
