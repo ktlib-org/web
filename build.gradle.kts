@@ -30,7 +30,7 @@ dependencies {
     val javalinVersion: String by project
     val kotestVersion: String by project
 
-    implementation("com.github.ktlib-org:core:0.1.15")
+    implementation("com.github.ktlib-org:core:0.4.1")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinVersion")
     implementation("io.javalin:javalin:$javalinVersion")
