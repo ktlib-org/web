@@ -3,8 +3,8 @@ package org.ktlib.web
 import io.javalin.apibuilder.ApiBuilder.get
 import org.ktlib.instancesFromFilesRelativeToClass
 
-object WebServer : Javalin({
-    routes {
+object WebServer : Javalin({ config ->
+    config.router.apiBuilder {
         get("/1") { ctx -> ctx.result("From1") }
 
         instancesFromFilesRelativeToClass<WebServer, Router>().forEach { it.route() }

@@ -1,17 +1,16 @@
 package org.ktlib.web
 
 import io.javalin.Javalin
+import io.javalin.config.JavalinConfig
+import io.javalin.http.Cookie
 import io.javalin.http.HttpStatus
 import io.javalin.json.JavalinJackson
 import io.javalin.openapi.BearerAuth
 import io.javalin.openapi.OpenApiInfo
 import io.javalin.openapi.plugin.DefinitionConfiguration
 import io.javalin.openapi.plugin.OpenApiPlugin
-import io.javalin.openapi.plugin.OpenApiPluginConfiguration
 import io.javalin.openapi.plugin.SecurityComponentConfiguration
-import io.javalin.openapi.plugin.swagger.SwaggerConfiguration
 import io.javalin.openapi.plugin.swagger.SwaggerPlugin
-import io.javalin.security.AccessManager
 import io.javalin.testtools.JavalinTest
 import io.javalin.testtools.TestCase
 import org.ktlib.*
@@ -20,6 +19,7 @@ import org.ktlib.entities.UnauthorizedException
 import org.ktlib.entities.ValidationException
 import org.ktlib.error.ErrorReporter
 import org.ktlib.trace.Trace
+import java.util.function.Consumer
 
 
 /**
@@ -52,18 +52,13 @@ import org.ktlib.trace.Trace
  * - web.accessManager an instance of `io.javalin.core.security.AccessManager` to be used for the Javalin instance
  * - web.serverPort the port to use for the web server, the default is `8080`
  */
-abstract class Javalin(private val setup: Javalin.() -> Any = {}) {
+abstract class Javalin(private val setup: Consumer<JavalinConfig>) {
     private val useOpenApi = config("web.openApi", true)
     private val allowOpenApiInProd = config("web.allowOpenApiInProd", false)
     private val traceExtraBuilder = config<WebTraceExtraBuilder>("web.traceExtraBuilder", EmptyWebTraceExtraBuilder)
     private val corsOrigins = configOrNull<String>("web.corsOrigins")
     private val port = config("web.serverPort", 8080)
-    private var accessManager: AccessManager? = null
     private var currentApp: Javalin? = null
-
-    constructor(accessManager: AccessManager, setup: Javalin.() -> Any = {}) : this(setup) {
-        this.accessManager = accessManager
-    }
 
     val app: Javalin
         get() {
@@ -72,10 +67,10 @@ abstract class Javalin(private val setup: Javalin.() -> Any = {}) {
         }
 
 
-    private fun create(): Javalin = Javalin.create {
+    private fun create(): Javalin = Javalin.create { config ->
         if (corsOrigins != null) {
-            it.plugins.enableCors { cors ->
-                cors.add { corsConfig ->
+            config.bundledPlugins.enableCors { cors ->
+                cors.addRule { corsConfig ->
                     val origins = corsOrigins.split(",")
                     when {
                         corsOrigins == "*" -> corsConfig.anyHost()
@@ -86,41 +81,26 @@ abstract class Javalin(private val setup: Javalin.() -> Any = {}) {
             }
         }
 
-        if (accessManager != null) {
-            it.accessManager { handler, ctx, routeRoles ->
-                val path = ctx.path()
-                if (useOpenApi && (path == "/" || path == "/openapi" || path.startsWith("/webjars/swagger-ui/"))) {
-                    if (Environment.isNotProd || allowOpenApiInProd) {
-                        handler.handle(ctx)
-                    } else {
-                        ctx.status(HttpStatus.NOT_FOUND)
-                    }
-                } else {
-                    accessManager?.manage(handler, ctx, routeRoles)
-                }
-            }
-        }
+        config.jsonMapper(JavalinJackson(Json.camelCaseMapper))
 
-        it.jsonMapper(JavalinJackson(Json.camelCaseMapper))
-
-        if (useOpenApi) {
-            val openApiConfig = OpenApiPluginConfiguration()
-                .withDefinitionConfiguration { _: String, definition: DefinitionConfiguration ->
+        if (useOpenApi && (allowOpenApiInProd || Environment.isNotProd)) {
+            config.registerPlugin(OpenApiPlugin { openApiConfig ->
+                openApiConfig.withDefinitionConfiguration { _: String, definition: DefinitionConfiguration ->
                     definition
-                        .withOpenApiInfo { openApiInfo: OpenApiInfo ->
+                        .withInfo { openApiInfo: OpenApiInfo ->
                             openApiInfo.title = Application.name
                             openApiInfo.version = Environment.version
                         }
                         .withSecurity(SecurityComponentConfiguration().withSecurityScheme("BearerAuth", BearerAuth()))
                 }
+            })
 
-
-            it.plugins.register(OpenApiPlugin(openApiConfig))
-
-            val swaggerConfiguration = SwaggerConfiguration()
-            swaggerConfiguration.uiPath = "/"
-            it.plugins.register(SwaggerPlugin(swaggerConfiguration))
+            config.registerPlugin(SwaggerPlugin { config ->
+                config.uiPath = "/"
+            })
         }
+
+        setup.accept(config)
     }.apply {
         exception(ValidationException::class.java) { e, ctx ->
             ctx.json(e.validationErrors)
@@ -144,6 +124,15 @@ abstract class Javalin(private val setup: Javalin.() -> Any = {}) {
         before { context ->
             ErrorReporter.setContext(context.req())
             Trace.clear()
+            var sessionId = context.cookie("ktlibSessionId")?.toUUID()
+            if (sessionId == null) {
+                sessionId = newUUID4()
+                val myCookie = Cookie("ktlibSessionId", sessionId.toString())
+                myCookie.isHttpOnly = true
+                myCookie.secure = Environment.isNotLocal
+                context.cookie(myCookie)
+            }
+            Trace.sessionId(sessionId)
             Trace.start("Web", context.path(), mapOf("url" to context.path()))
         }
 
@@ -153,8 +142,6 @@ abstract class Javalin(private val setup: Javalin.() -> Any = {}) {
                 traceExtraBuilder.build(context)
             )
         }
-
-        setup(this)
     }
 
     fun start() {

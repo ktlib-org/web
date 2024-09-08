@@ -3,13 +3,13 @@ name: CI
 on: [ push ]
 
 permissions:
-  contents: read
+  contents: write
   actions: read
   checks: write
 
 jobs:
   build:
-    name: Unit Tests
+    name: Test and build new version
     runs-on: ubuntu-latest
 
     steps:
@@ -19,17 +19,65 @@ jobs:
         with:
           java-version: '17'
           distribution: 'adopt'
+
       - name: Validate Gradle wrapper
         uses: gradle/wrapper-validation-action@e6e38bacfdf1a337459f332974bb2327a31aaf4b
+
       - name: Run Tests
         uses: gradle/gradle-build-action@937999e9cc2425eddc7fd62d1053baf041147db7
         with:
           arguments: test
 
       - name: Test Report
-        uses: dorny/test-reporter@v1
         if: success() || failure()
+        uses: dorny/test-reporter@v1
         with:
           name: Unit Test Results
           path: build/test-results/**/*.xml
           reporter: java-junit
+
+      - name: Bump version and push tag
+        id: tag_version
+        if: success()
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_prefix: ''
+
+      - name: Create a GitHub release
+        if: success()
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: ${{ steps.tag_version.outputs.changelog }}
+
+      - name: Start Jitpack Build
+        if: success()
+        run: |
+          repo=${{ github.repository }}
+          module=$(basename ${{ github.repository }})
+          version=${{ steps.tag_version.outputs.new_tag }}
+          url="https://jitpack.io/com/github/$repo/$version/$module-$version.pom"
+          maxRetries=25
+          retryWait=10
+          retryCount=0
+          
+          sleep 30
+          echo "Looking for build at $url"
+          
+          while [ $retryCount -le $maxRetries ]; do
+            response=$(curl --write-out "%{http_code}" --silent --output /dev/null $url)
+          
+            if [ $response -eq 200 ]; then
+              echo "Found build in JitPack!"
+              exit 0
+            else
+              echo "Retry $((retryCount+1))..."
+              retryCount=$((retryCount+1))
+              sleep $retryWait
+            fi
+          done
+          
+          echo "Could not find build in JitPack"
+          exit 1

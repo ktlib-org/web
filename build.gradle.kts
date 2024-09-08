@@ -21,27 +21,26 @@ repositories {
 plugins {
     `java-library`
     `maven-publish`
+    kotlin("jvm") version "2.0.20"
 }
-
-apply(plugin = "kotlin")
 
 dependencies {
     val kotlinVersion: String by project
     val javalinVersion: String by project
     val kotestVersion: String by project
 
-    implementation("com.github.ktlib-org:core:0.4.1")
-    implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
+    implementation("com.github.ktlib-org:core:0.6.15")
+    implementation("io.github.oshai:kotlin-logging-jvm:7.0.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:$kotlinVersion")
     implementation("io.javalin:javalin:$javalinVersion")
     implementation("io.javalin.community.openapi:javalin-openapi-plugin:$javalinVersion")
     implementation("io.javalin.community.openapi:javalin-swagger-plugin:$javalinVersion")
     implementation("io.javalin:javalin-testtools:$javalinVersion")
-    implementation("com.github.f4b6a3:uuid-creator:5.3.5")
+    implementation("com.github.f4b6a3:uuid-creator:6.0.0")
 
     testImplementation("io.kotest:kotest-assertions-core:$kotestVersion")
     testImplementation("io.kotest:kotest-runner-junit5:$kotestVersion")
-    testImplementation("io.mockk:mockk:1.12.7")
+    testImplementation("io.mockk:mockk:1.13.12")
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
