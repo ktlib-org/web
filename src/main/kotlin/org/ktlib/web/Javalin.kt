@@ -17,7 +17,6 @@ import org.ktlib.*
 import org.ktlib.entities.NotFoundException
 import org.ktlib.entities.UnauthorizedException
 import org.ktlib.entities.ValidationException
-import org.ktlib.error.ErrorReporter
 import org.ktlib.trace.Trace
 import java.util.function.Consumer
 
@@ -117,13 +116,11 @@ abstract class Javalin(private val setup: Consumer<JavalinConfig>) {
 
         exception(Exception::class.java) { e, ctx ->
             e.printStackTrace()
-            ErrorReporter.report(e)
+            Trace.error(e)
             ctx.status(HttpStatus.INTERNAL_SERVER_ERROR)
         }
 
         before { context ->
-            ErrorReporter.setContext(context.req())
-            Trace.clear()
             var sessionId = context.cookie("ktlibSessionId")?.toUUID()
             if (sessionId == null) {
                 sessionId = newUUID4()
@@ -132,15 +129,13 @@ abstract class Javalin(private val setup: Consumer<JavalinConfig>) {
                 myCookie.secure = Environment.isNotLocal
                 context.cookie(myCookie)
             }
-            Trace.sessionId(sessionId)
-            Trace.start("Web", context.path(), mapOf("url" to context.path()))
+            Trace.start("Web", mapOf("url" to context.path(), "sessionId" to sessionId))
         }
 
         after { context ->
-            Trace.finish(
-                context.endpointHandlerPath(),
-                traceExtraBuilder.build(context)
-            )
+            val attr = Trace.buildAttributes(Application.name, context.endpointHandlerPath())
+            traceExtraBuilder.build(context)?.let { attr.putAll(it) }
+            Trace.end(attr)
         }
     }
 
